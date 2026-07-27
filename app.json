@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Circle Network",
+    "slug": "circle-network-wifi-analyzer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F2661C"
+    },
+    "android": {
+      "package": "com.circlenetwork.wifianalyzer",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F2661C"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_WIFI_STATE",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c11fced6-7301-4621-9a27-f41b63e4948c"
+      }
+    }
+  }
+}
