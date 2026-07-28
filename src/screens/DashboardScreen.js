@@ -5,13 +5,11 @@ import React from "react";
 import useRealPing from "../hooks/useRealPing";
 import useWifiInfo from "../hooks/useWifiInfo";
 import { Ionicons } from "@expo/vector-icons";
-import { Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Linking, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Card, MetricRow, VerdictBadge } from "../components/Bits";
 import { T } from "../constants/translations";
 import { tr, useLanguage } from "../context/LanguageContext";
 import { COLORS, FONT, RADIUS, SPACING, statusColors } from "../theme";
-
-// src/screens/DashboardScreen.js
 
 // পিং টেস্টের জন্য টার্গেট হোস্ট — Google Public DNS, বিশ্বব্যাপী সবসময় রিচেবল
 const PING_TARGET_HOST = '8.8.8.8';
@@ -43,11 +41,28 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [requesting, setRequesting] = React.useState(false);
 
+  const openAppSettingsSafely = async () => {
+    try {
+      const result = Linking.openSettings();
+      // Linking.openSettings() একটা Promise রিটার্ন করে — await করে নিশ্চিত হচ্ছি
+      // এটা সত্যিই সফল হয়েছে কিনা, নাহলে silently কিছু না হয়ে যাওয়ার সুযোগ থাকে।
+      await result;
+    } catch (err) {
+      console.warn('[Dashboard] Linking.openSettings failed:', err?.message || err);
+      Alert.alert(
+        language === 'bn' ? 'ম্যানুয়ালি করতে হবে' : 'Manual step needed',
+        language === 'bn'
+          ? 'ফোনে Settings অ্যাপ খুলুন → Apps → Circle Network → Permissions → Location অন করুন।'
+          : 'Open phone Settings → Apps → Circle Network → Permissions → turn on Location.'
+      );
+    }
+  };
+
   const handleGrantPermission = async () => {
     // যদি Android আগেই permanently block করে রেখেছে বলে আমরা জানি,
     // তাহলে popup দেখানোর চেষ্টা না করে সরাসরি Settings-এ পাঠানো ঠিক।
     if (permissionDeniedForever) {
-      Linking.openSettings();
+      await openAppSettingsSafely();
       return;
     }
     setRequesting(true);
