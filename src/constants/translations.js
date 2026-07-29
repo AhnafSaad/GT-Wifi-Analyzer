@@ -53,6 +53,7 @@ export const T = {
   smooth: { en: 'Smooth', bn: 'স্মুথ' },
   playable: { en: 'Playable', bn: 'খেলার যোগ্য' },
   laggy: { en: 'Laggy', bn: 'ল্যাগি' },
+  demoIp: { en: 'DEMO IP', bn: 'ডেমো আইপি' },
   tapToStartGaming: { en: 'Tap "Test All Servers" to check every game at once.', bn: 'এক ট্যাপে সব গেম চেক করতে "সব সার্ভার টেস্ট করুন" চাপুন।' },
 
   // DNS
