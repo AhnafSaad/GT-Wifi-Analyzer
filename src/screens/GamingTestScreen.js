@@ -1,76 +1,107 @@
 import AppHeader from "../components/AppHeader";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Card, StatusTag } from "../components/Bits";
-import { PING_THRESHOLDS, SERVERS, pingLevel } from "../constants/gameservers";
 import { T } from "../constants/translations";
+import { ConfigContext } from "../context/ConfigContext";
 import { tr, useLanguage } from "../context/LanguageContext";
-import { COLORS, FONT, RADIUS, SHADOW, SPACING, statusColors } from "../theme";
+import { COLORS, FONT, RADIUS, SPACING, statusColors } from "../theme";
 import { singlePing } from "../utils/ping";
 
 // src/screens/GamingTestScreen.js
 
-// প্রতি কত মিলিসেকেন্ড পরপর পিং রিফ্রেশ হবে
 const REFRESH_INTERVAL_MS = 5000;
-
 const TAG_KEY = { green: 'smooth', yellow: 'playable', red: 'laggy' };
+
+// ডায়নামিক থ্রেশহোল্ড অনুযায়ী স্ট্যাটাস লেভেল (green / yellow / red) নির্ধারণ
+const getHostStatusLevel = (ms, smoothMax = 40, playableMax = 90) => {
+  if (ms == null) return 'red';
+  if (ms <= smoothMax) return 'green';
+  if (ms <= playableMax) return 'yellow';
+  return 'red';
+};
 
 export default function GamingTestScreen() {
   const { language } = useLanguage();
   const t = (key) => tr(T[key], language);
 
+  // ড্যাশবোর্ড থেকে লাইভ কনফিগ নেওয়া হচ্ছে
+  const { config } = useContext(ConfigContext);
+
   const [results, setResults] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedId, setExpandedId] = useState(null); // একবারে একটা এন্ট্রিই এক্সপ্যান্ড থাকবে
+  const [expandedId, setExpandedId] = useState(null);
   const intervalRef = useRef(null);
 
-  // ✅ প্রতিটা এন্ট্রির প্রতিটা IP-তে আসল ICMP ping — একসাথে (parallel) চালানো হয়,
-  // মূল রো-তে average দেখানো হয়, আর প্রতিটা IP-এর individual রেজাল্টও সেভ থাকে
-  // (ট্যাপ করলে expand হয়ে সেগুলো দেখানোর জন্য)। IP গুলো
-  // src/constants/gameServers.js থেকে আসে — real সার্ভার IP বসাতে ওখানে যান।
+  // লাইভ সার্ভার ডেটা দিয়ে পিং টেস্ট পরিচালনা
   const refreshPings = async () => {
+    const serversList = config?.servers || [];
+    if (!serversList.length) {
+      setResults([]);
+      return;
+    }
+
     const pinged = await Promise.all(
-      SERVERS.map(async (s) => {
+      serversList.map(async (s) => {
+        const hostsList = s.hosts || [];
         const hostResults = await Promise.all(
-          s.hosts.map(async (h) => {
+          hostsList.map(async (h) => {
             const r = await singlePing(h.ip);
-            return { label: h.label, ip: h.ip, isDemo: h.isDemo, ok: r.ok, ms: r.ok ? r.ms : null };
+            const ms = r.ok ? r.ms : null;
+            const level = getHostStatusLevel(ms, h.smoothMax, h.playableMax);
+            return {
+              label: h.label,
+              ip: h.ip,
+              ok: r.ok,
+              ms,
+              level,
+              smoothMax: h.smoothMax || 40,
+              playableMax: h.playableMax || 90,
+            };
           })
         );
+
         const okResults = hostResults.filter((r) => r.ok);
         const avgPing = okResults.length
           ? Math.round(okResults.reduce((sum, r) => sum + r.ms, 0) / okResults.length)
           : null;
-        const anyDemo = s.hosts.some((h) => h.isDemo);
+
+        // হোস্টগুলোর মধ্যে ওরস্ট লেভেল ট্র্যাক করা (সার্ভারের ওভারঅল স্ট্যাটাসের জন্য)
+        let overallLevel = 'green';
+        if (!okResults.length) {
+          overallLevel = 'red';
+        } else if (hostResults.some((h) => h.level === 'red')) {
+          overallLevel = 'red';
+        } else if (hostResults.some((h) => h.level === 'yellow')) {
+          overallLevel = 'yellow';
+        }
+
         return {
           ...s,
           ping: avgPing,
+          overallLevel,
           reachableCount: okResults.length,
-          totalHosts: s.hosts.length,
+          totalHosts: hostsList.length,
           hostResults,
-          isDemo: anyDemo,
         };
       })
     );
     setResults(pinged);
   };
 
-  // হেডারের রিলোড আইকন বা উপর থেকে টেনে (pull-to-refresh) — দুটোই এটা কল করে
   const handleManualRefresh = () => {
     setRefreshing(true);
     refreshPings().finally(() => setRefreshing(false));
   };
 
-  // স্ক্রিন ওপেন হওয়ার সাথে সাথেই অটোমেটিক টেস্ট শুরু হয়ে যায়,
-  // কোনো বাটন চাপার দরকার নেই — প্রতি ৫ সেকেন্ড পরপর রিফ্রেশ হতে থাকে।
   useEffect(() => {
     refreshPings();
     intervalRef.current = setInterval(refreshPings, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, []);
+  }, [config]);
 
   const toggleExpand = (id) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -78,7 +109,7 @@ export default function GamingTestScreen() {
 
   const renderRow = ({ item }) => {
     const hasReading = item.ping != null;
-    const level = hasReading ? pingLevel(item.ping) : 'red';
+    const level = hasReading ? item.overallLevel : 'red';
     const c = statusColors(level);
     const isExpanded = expandedId === item.id;
 
@@ -86,16 +117,11 @@ export default function GamingTestScreen() {
       <Card style={styles.card}>
         <TouchableOpacity activeOpacity={0.7} onPress={() => toggleExpand(item.id)} style={styles.row}>
           <View style={[styles.logo, { backgroundColor: c.soft }]}>
-            <Ionicons name={item.icon} size={20} color={c.main} />
+            <Ionicons name={item.icon || "game-controller"} size={20} color={c.main} />
           </View>
           <View style={styles.mid}>
             <View style={styles.nameRow}>
               <Text style={styles.gameName} numberOfLines={1}>{item.name}</Text>
-              {item.isDemo && (
-                <View style={styles.demoBadge}>
-                  <Text style={styles.demoBadgeText}>{t('demoIp')}</Text>
-                </View>
-              )}
             </View>
             <Text style={[styles.ping, { color: c.main }]}>{hasReading ? `${item.ping} ms` : '—'}</Text>
             <Text style={styles.routeInfo}>{item.reachableCount}/{item.totalHosts} route reachable</Text>
@@ -111,17 +137,25 @@ export default function GamingTestScreen() {
 
         {isExpanded && (
           <View style={styles.breakdown}>
-            {item.hostResults.map((h) => {
-              const hLevel = h.ok ? pingLevel(h.ms) : 'red';
-              const hc = statusColors(hLevel);
+            {item.hostResults.map((h, idx) => {
+              const hc = statusColors(h.level);
               return (
-                <View key={h.ip} style={styles.breakdownRow}>
+                <View key={h.ip + idx} style={styles.breakdownRow}>
                   <View style={styles.breakdownLeft}>
                     <View style={[styles.dot, { backgroundColor: hc.main }]} />
-                    <Text style={styles.breakdownLabel}>{h.label}</Text>
-                    <Text style={styles.breakdownIp}>({h.ip})</Text>
+                    <View>
+                      <Text style={styles.breakdownLabel}>{h.label}</Text>
+                      <Text style={styles.breakdownIp}>({h.ip})</Text>
+                    </View>
                   </View>
-                  <Text style={[styles.breakdownPing, { color: hc.main }]}>{h.ok ? `${h.ms} ms` : '—'}</Text>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[styles.breakdownPing, { color: hc.main }]}>
+                      {h.ok ? `${h.ms} ms` : '—'}
+                    </Text>
+                    <Text style={styles.thresholdSubText}>
+                      Max: {h.smoothMax}ms / {h.playableMax}ms
+                    </Text>
+                  </View>
                 </View>
               );
             })}
@@ -141,30 +175,19 @@ export default function GamingTestScreen() {
         </View>
         <Text style={styles.disclaimer}>{t('gamingDisclaimer')}</Text>
 
-        {/* Threshold legend — কোন রেঞ্জে Smooth/Playable/Laggy ধরা হচ্ছে */}
-        <View style={styles.thresholdRow}>
-          <View style={styles.thresholdItem}>
-            <View style={[styles.thresholdDot, { backgroundColor: statusColors('green').main }]} />
-            <Text style={styles.thresholdText}>{t('smooth')} {'<'} {PING_THRESHOLDS.smooth.max}ms</Text>
-          </View>
-          <View style={styles.thresholdItem}>
-            <View style={[styles.thresholdDot, { backgroundColor: statusColors('yellow').main }]} />
-            <Text style={styles.thresholdText}>{t('playable')} {PING_THRESHOLDS.smooth.max}–{PING_THRESHOLDS.playable.max}ms</Text>
-          </View>
-          <View style={styles.thresholdItem}>
-            <View style={[styles.thresholdDot, { backgroundColor: statusColors('red').main }]} />
-            <Text style={styles.thresholdText}>{t('laggy')} {'>'} {PING_THRESHOLDS.playable.max}ms</Text>
-          </View>
-        </View>
-
         <FlatList
           data={results ?? []}
-          keyExtractor={(i) => i.id}
+          keyExtractor={(i) => i.id || i.name}
           renderItem={renderRow}
           contentContainerStyle={{ paddingTop: SPACING.sm, paddingBottom: 90 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleManualRefresh} colors={[COLORS.primary]} tintColor={COLORS.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleManualRefresh}
+              colors={[COLORS.primary]}
+              tintColor={COLORS.primary}
+            />
           }
         />
       </View>
@@ -181,16 +204,6 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 10.5, fontFamily: FONT.bold, color: COLORS.red, letterSpacing: 0.5 },
   disclaimer: { fontSize: 10.5, color: COLORS.inkMuted, fontFamily: FONT.medium, marginBottom: SPACING.sm, lineHeight: 15 },
 
-  thresholdRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: SPACING.md,
-    gap: 10,
-  },
-  thresholdItem: { flexDirection: 'row', alignItems: 'center', marginRight: 4 },
-  thresholdDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
-  thresholdText: { fontSize: 10.5, fontFamily: FONT.medium, color: COLORS.inkSoft },
-
   card: { marginBottom: SPACING.md, padding: 0, overflow: 'hidden' },
   row: {
     flexDirection: 'row',
@@ -201,16 +214,6 @@ const styles = StyleSheet.create({
   mid: { flex: 1, marginRight: 8 },
   nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   gameName: { fontSize: 13.5, fontFamily: FONT.semibold, color: COLORS.ink },
-  demoBadge: {
-    marginLeft: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
-    backgroundColor: COLORS.yellowSoft,
-    borderWidth: 1,
-    borderColor: COLORS.yellowSoftBorder,
-  },
-  demoBadgeText: { fontSize: 9, fontFamily: FONT.bold, color: '#8a6d00' },
   ping: { fontSize: 13, fontFamily: FONT.extrabold },
   routeInfo: { fontSize: 10, fontFamily: FONT.medium, color: COLORS.inkMuted, marginTop: 2 },
 
@@ -230,6 +233,7 @@ const styles = StyleSheet.create({
   breakdownLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   dot: { width: 7, height: 7, borderRadius: 3.5, marginRight: 8 },
   breakdownLabel: { fontSize: 12.5, fontFamily: FONT.medium, color: COLORS.ink },
-  breakdownIp: { fontSize: 11, fontFamily: FONT.medium, color: COLORS.inkMuted, marginLeft: 5 },
+  breakdownIp: { fontSize: 10.5, fontFamily: FONT.medium, color: COLORS.inkMuted },
   breakdownPing: { fontSize: 12.5, fontFamily: FONT.bold },
+  thresholdSubText: { fontSize: 9.5, fontFamily: FONT.medium, color: COLORS.inkMuted, marginTop: 1 },
 });
