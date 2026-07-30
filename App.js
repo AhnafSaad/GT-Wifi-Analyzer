@@ -1,17 +1,24 @@
+import "react-native-gesture-handler";
+import * as SplashScreen from "expo-splash-screen";
+import DashboardScreen from "./src/screens/DashboardScreen";
+import DnsCheckScreen from "./src/screens/DnsCheckScreen";
+import GamingTestScreen from "./src/screens/GamingTestScreen";
+import React, { useCallback } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { NavigationContainer } from "@react-navigation/native";
+import { StatusBar } from "expo-status-bar";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { ConfigProvider } from "./src/context/ConfigContext";
+import { LanguageProvider } from "./src/context/LanguageContext";
+import { COLORS, FONT, RADIUS, SHADOW } from "./src/theme";
+
 // App.js
 // CIRCLE NETWORK — root entry point.
 // Loads the Inter font family, wraps everything in the global language
 // provider, and renders a floating pill-style bottom tab bar.
 
-import 'react-native-gesture-handler';
-import React, { useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
 import {
   useFonts,
   Inter_400Regular,
@@ -21,11 +28,7 @@ import {
   Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
 
-import DashboardScreen from './src/screens/DashboardScreen';
-import GamingTestScreen from './src/screens/GamingTestScreen';
-import DnsCheckScreen from './src/screens/DnsCheckScreen';
-import { LanguageProvider } from './src/context/LanguageContext';
-import { COLORS, FONT, RADIUS, SHADOW } from './src/theme';
+// নতুন ConfigProvider ইম্পোর্ট করা হলো
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -104,19 +107,22 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <LanguageProvider>
-        <NavigationContainer onReady={onLayout}>
-          <StatusBar style="light" />
-          <Tab.Navigator
-            screenOptions={{ headerShown: false }}
-            tabBar={(props) => <FloatingTabBar {...props} />}
-          >
-            <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ tabBarLabel: 'Dashboard' }} />
-            <Tab.Screen name="Gaming" component={GamingTestScreen} options={{ tabBarLabel: 'Gaming' }} />
-            <Tab.Screen name="DNS" component={DnsCheckScreen} options={{ tabBarLabel: 'DNS' }} />
-          </Tab.Navigator>
-        </NavigationContainer>
-      </LanguageProvider>
+      {/* ConfigProvider দিয়ে পুরো অ্যাপটিকে র‍্যাপ করা হলো */}
+      <ConfigProvider>
+        <LanguageProvider>
+          <NavigationContainer onReady={onLayout}>
+            <StatusBar style="light" />
+            <Tab.Navigator
+              screenOptions={{ headerShown: false }}
+              tabBar={(props) => <FloatingTabBar {...props} />}
+            >
+              <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ tabBarLabel: 'Dashboard' }} />
+              <Tab.Screen name="Gaming" component={GamingTestScreen} options={{ tabBarLabel: 'Gaming' }} />
+              <Tab.Screen name="DNS" component={DnsCheckScreen} options={{ tabBarLabel: 'DNS' }} />
+            </Tab.Navigator>
+          </NavigationContainer>
+        </LanguageProvider>
+      </ConfigProvider>
     </SafeAreaProvider>
   );
 }
