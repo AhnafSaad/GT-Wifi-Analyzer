@@ -1,26 +1,22 @@
 import AppHeader from "../components/AppHeader";
 import Gauge from "../components/Gauge";
 import LiveLineChart from "../components/LiveLineChart";
-import React from "react";
+import React, { useContext } from "react";
 import useRealPing from "../hooks/useRealPing";
 import useWifiInfo from "../hooks/useWifiInfo";
 import { Ionicons } from "@expo/vector-icons";
 import { Alert, Linking, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Card, MetricRow, VerdictBadge } from "../components/Bits";
 import { T } from "../constants/translations";
+import { ConfigContext } from "../context/ConfigContext";
 import { tr, useLanguage } from "../context/LanguageContext";
 import { COLORS, FONT, RADIUS, SPACING, statusColors } from "../theme";
 
-// পিং টেস্টের জন্য টার্গেট হোস্ট — Google Public DNS, বিশ্বব্যাপী সবসময় রিচেবল
-const PING_TARGET_HOST = '8.8.8.8';
-
-function signalLevel(dBm) { return dBm >= -60 ? 'green' : dBm >= -70 ? 'yellow' : 'red'; }
-function pingLevel(ms) { return ms < 40 ? 'green' : ms <= 90 ? 'yellow' : 'red'; }
-function jitterLevel(ms) { return ms < 10 ? 'green' : ms <= 25 ? 'yellow' : 'red'; }
-function lossLevel(pct) { return pct <= 1 ? 'green' : pct <= 5 ? 'yellow' : 'red'; }
+// কোয়ালিটি লেবেল এবং ভার্ডিক্ট লজিক আগের মতই থাকছে
 function qualityLabel(level, lang) {
   return level === 'green' ? tr(T.good, lang) : level === 'yellow' ? tr(T.fair, lang) : tr(T.poor, lang);
 }
+
 function computeVerdict({ dBmLvl, pingLvl: pLvl, jitterLvl: jLvl, lossLvl: lLvl }, lang) {
   if (lLvl === 'red') return { level: 'red', text: tr(T.highPacketLoss, lang) };
   if (dBmLvl === 'red') return { level: 'red', text: tr(T.weakSignal, lang) };
@@ -33,10 +29,42 @@ export default function DashboardScreen() {
   const { language } = useLanguage();
   const t = (key) => tr(T[key], language);
 
-  // ✅ আসল WiFi হার্ডওয়্যার থেকে সিগন্যাল/SSID/ব্যান্ড (react-native-wifi-reborn)
+  // ✅ ড্যাশবোর্ড থেকে লাইভ কনফিগ এবং গ্লোবাল থ্রেশহোল্ড নেওয়া হচ্ছে
+  const { config } = useContext(ConfigContext);
+
+  // সেফটি ফলব্যাকসহ কনফিগ ভ্যালু এক্সট্রাক্ট করা
+  const thresholds = config?.globalThresholds || {};
+  const pingTarget = config?.pingTarget || '8.8.8.8'; 
+  
+  // ডায়নামিক থ্রেশহোল্ড ফাংশন (কনফিগ থেকে ডেটা না পেলে আগের হার্ডকোডেড ভ্যালু ফলব্যাক হিসেবে কাজ করবে)
+  const getSignalLevel = (dBm) => {
+    const smoothMin = thresholds.signal?.smoothMin ?? -60;
+    const playableMin = thresholds.signal?.playableMin ?? -70;
+    return dBm >= smoothMin ? 'green' : dBm >= playableMin ? 'yellow' : 'red';
+  };
+  
+  const getPingLevel = (ms) => {
+    const smoothMax = thresholds.ping?.smoothMax ?? 40;
+    const playableMax = thresholds.ping?.playableMax ?? 90;
+    return ms <= smoothMax ? 'green' : ms <= playableMax ? 'yellow' : 'red';
+  };
+  
+  const getJitterLevel = (ms) => {
+    const smoothMax = thresholds.jitter?.smoothMax ?? 10;
+    const playableMax = thresholds.jitter?.playableMax ?? 25;
+    return ms <= smoothMax ? 'green' : ms <= playableMax ? 'yellow' : 'red';
+  };
+  
+  const getLossLevel = (pct) => {
+    const smoothMax = thresholds.packetLoss?.smoothMax ?? 1;
+    const playableMax = thresholds.packetLoss?.playableMax ?? 5;
+    return pct <= smoothMax ? 'green' : pct <= playableMax ? 'yellow' : 'red';
+  };
+
   const { ssid, band, dBm, dBmHistory, isWifi, permissionGranted, permissionDeniedForever, permissionError, requestPermission } = useWifiInfo();
-  // ✅ আসল ICMP ping থেকে ping/jitter/packet-loss (react-native-ping)
-  const { ping, jitter, lossPct, pingHistory } = useRealPing(PING_TARGET_HOST);
+  
+  // ✅ এখন পিং টার্গেটও লাইভ কনফিগ থেকে আসবে
+  const { ping, jitter, lossPct, pingHistory } = useRealPing(pingTarget);
 
   const [refreshing, setRefreshing] = React.useState(false);
   const [requesting, setRequesting] = React.useState(false);
@@ -44,8 +72,6 @@ export default function DashboardScreen() {
   const openAppSettingsSafely = async () => {
     try {
       const result = Linking.openSettings();
-      // Linking.openSettings() একটা Promise রিটার্ন করে — await করে নিশ্চিত হচ্ছি
-      // এটা সত্যিই সফল হয়েছে কিনা, নাহলে silently কিছু না হয়ে যাওয়ার সুযোগ থাকে।
       await result;
     } catch (err) {
       console.warn('[Dashboard] Linking.openSettings failed:', err?.message || err);
@@ -59,8 +85,6 @@ export default function DashboardScreen() {
   };
 
   const handleGrantPermission = async () => {
-    // যদি Android আগেই permanently block করে রেখেছে বলে আমরা জানি,
-    // তাহলে popup দেখানোর চেষ্টা না করে সরাসরি Settings-এ পাঠানো ঠিক।
     if (permissionDeniedForever) {
       await openAppSettingsSafely();
       return;
@@ -68,8 +92,6 @@ export default function DashboardScreen() {
     setRequesting(true);
     await requestPermission();
     setRequesting(false);
-    // এখানে ইচ্ছাকৃতভাবে Settings-এ auto-redirect করা হচ্ছে না —
-    // ব্যর্থ হলে নিচে permissionError দেখিয়ে ইউজারকে আবার চেষ্টা করতে বলা হবে।
   };
 
   const networkTitle = !permissionGranted
@@ -81,22 +103,20 @@ export default function DashboardScreen() {
     : t('unknownNetwork');
   const networkSubtitle = isWifi && band ? band : null;
 
-  // সব real hook থেকে অন্তত একটা রিডিং আসা পর্যন্ত "লোডিং" দেখানো হয়
   const ready = dBm != null && ping != null;
 
-  // হেডারের রিলোড আইকন / pull-to-refresh — hook গুলো নিজে থেকেই পোল করতে থাকে,
-  // এখানে শুধু সংক্ষিপ্ত একটা spinner দেখানো হয় যাতে ব্যবহারকারী বুঝতে পারে
-  // "রিফ্রেশ" রিকোয়েস্ট গৃহীত হয়েছে।
   const handleManualRefresh = () => {
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 600);
   };
 
-  const dBmLvl = ready ? signalLevel(dBm) : null;
-  const pLvl = ready ? pingLevel(ping) : null;
-  const jLvl = jitter != null ? jitterLevel(jitter) : null;
-  const lLvl = lossPct != null ? lossLevel(lossPct) : null;
+  // ✅ ডায়নামিক ফাংশন দিয়ে লেভেল ক্যালকুলেশন
+  const dBmLvl = ready ? getSignalLevel(dBm) : null;
+  const pLvl = ready ? getPingLevel(ping) : null;
+  const jLvl = jitter != null ? getJitterLevel(jitter) : null;
+  const lLvl = lossPct != null ? getLossLevel(lossPct) : null;
   const verdict = ready ? computeVerdict({ dBmLvl, pingLvl: pLvl, jitterLvl: jLvl, lossLvl: lLvl }, language) : null;
+  
   const gaugeColor = ready ? statusColors(dBmLvl).main : COLORS.border;
   const gaugePercent = ready ? Math.max(0, Math.min(100, ((dBm + 95) / 65) * 100)) : 0;
 
