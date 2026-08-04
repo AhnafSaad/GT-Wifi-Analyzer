@@ -36,29 +36,32 @@ export default function DashboardScreen() {
   const thresholds = config?.globalThresholds || {};
   const pingTarget = config?.pingTarget || '8.8.8.8'; 
   
-  // ডায়নামিক থ্রেশহোল্ড ফাংশন (কনফিগ থেকে ডেটা না পেলে আগের হার্ডকোডেড ভ্যালু ফলব্যাক হিসেবে কাজ করবে)
+  // ডায়নামিক থ্রেশহোল্ড ফাংশন (কনফিগ থেকে ডেটা না পেলে আগের হার্ডকোডেড ভ্যালু ফলব্যাক হিসেবে কাজ করবে)
+  // 🟢 dashboard এর App.jsx এর key নামের সাথে মিলিয়ে নেওয়া হলো: dbm (goodMin/fairMin),
+  // ping/jitter/packetLoss (goodMax/fairMax) — আগে এখানে signal/smoothMax/playableMax লেখা ছিল
+  // যা dashboard এর সাথে না মেলায় dashboard থেকে থ্রেশহোল্ড বদলালেও app এ কোনো effect পড়তো না।
   const getSignalLevel = (dBm) => {
-    const smoothMin = thresholds.signal?.smoothMin ?? -60;
-    const playableMin = thresholds.signal?.playableMin ?? -70;
-    return dBm >= smoothMin ? 'green' : dBm >= playableMin ? 'yellow' : 'red';
+    const goodMin = thresholds.dbm?.goodMin ?? -65;
+    const fairMin = thresholds.dbm?.fairMin ?? -85;
+    return dBm >= goodMin ? 'green' : dBm >= fairMin ? 'yellow' : 'red';
   };
   
   const getPingLevel = (ms) => {
-    const smoothMax = thresholds.ping?.smoothMax ?? 40;
-    const playableMax = thresholds.ping?.playableMax ?? 90;
-    return ms <= smoothMax ? 'green' : ms <= playableMax ? 'yellow' : 'red';
+    const goodMax = thresholds.ping?.goodMax ?? 50;
+    const fairMax = thresholds.ping?.fairMax ?? 100;
+    return ms <= goodMax ? 'green' : ms <= fairMax ? 'yellow' : 'red';
   };
   
   const getJitterLevel = (ms) => {
-    const smoothMax = thresholds.jitter?.smoothMax ?? 10;
-    const playableMax = thresholds.jitter?.playableMax ?? 25;
-    return ms <= smoothMax ? 'green' : ms <= playableMax ? 'yellow' : 'red';
+    const goodMax = thresholds.jitter?.goodMax ?? 10;
+    const fairMax = thresholds.jitter?.fairMax ?? 30;
+    return ms <= goodMax ? 'green' : ms <= fairMax ? 'yellow' : 'red';
   };
   
   const getLossLevel = (pct) => {
-    const smoothMax = thresholds.packetLoss?.smoothMax ?? 1;
-    const playableMax = thresholds.packetLoss?.playableMax ?? 5;
-    return pct <= smoothMax ? 'green' : pct <= playableMax ? 'yellow' : 'red';
+    const goodMax = thresholds.packetLoss?.goodMax ?? 1;
+    const fairMax = thresholds.packetLoss?.fairMax ?? 5;
+    return pct <= goodMax ? 'green' : pct <= fairMax ? 'yellow' : 'red';
   };
 
   const { ssid, band, dBm, dBmHistory, isWifi, permissionGranted, permissionDeniedForever, permissionError, requestPermission } = useWifiInfo();
@@ -78,8 +81,8 @@ export default function DashboardScreen() {
       Alert.alert(
         language === 'bn' ? 'ম্যানুয়ালি করতে হবে' : 'Manual step needed',
         language === 'bn'
-          ? 'ফোনে Settings অ্যাপ খুলুন → Apps → Circle Network → Permissions → Location অন করুন।'
-          : 'Open phone Settings → Apps → Circle Network → Permissions → turn on Location.'
+          ? 'ফোনে Settings অ্যাপ খুলুন → Apps → GT Wifi Analyzer → Permissions → Location অন করুন।'
+          : 'Open phone Settings → Apps → GT Wifi Analyzer → Permissions → turn on Location.'
       );
     }
   };

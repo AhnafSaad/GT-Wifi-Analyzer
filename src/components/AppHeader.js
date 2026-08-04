@@ -1,14 +1,15 @@
+import React, { useEffect, useRef } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { Animated, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLanguage } from "../context/LanguageContext";
+import { COLORS, FONT } from "../theme";
+
 // src/components/AppHeader.js
 // Gradient brand header shared by every screen — logo mark, screen title,
 // and a smooth animated EN/বাং pill toggle.
 
-import React, { useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Animated } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONT } from '../theme';
-import { useLanguage } from '../context/LanguageContext';
 
 export default function AppHeader({ title, icon = 'radio', onReload }) {
   const { language, toggleLanguage } = useLanguage();
@@ -44,7 +45,7 @@ export default function AppHeader({ title, icon = 'radio', onReload }) {
               <Ionicons name={icon} size={19} color={COLORS.primary} />
             </View>
             <View>
-              <Text style={styles.brand}>Circle Network</Text>
+              <Text style={styles.brand}>GT Wifi Analyzer</Text>
               <Text style={styles.title}>{title}</Text>
             </View>
           </View>

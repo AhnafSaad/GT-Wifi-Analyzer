@@ -3,7 +3,9 @@ import * as SplashScreen from "expo-splash-screen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import DnsCheckScreen from "./src/screens/DnsCheckScreen";
 import GamingTestScreen from "./src/screens/GamingTestScreen";
-import React, { useCallback } from "react";
+import NearbyNetworksScreen from "./src/screens/NearbyNetworksScreen";
+import React, { useCallback, useEffect } from "react";
+import SpeedTestScreen from "./src/screens/SpeedTestScreen";
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
@@ -13,6 +15,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ConfigProvider } from "./src/context/ConfigContext";
 import { LanguageProvider } from "./src/context/LanguageContext";
 import { COLORS, FONT, RADIUS, SHADOW } from "./src/theme";
+
+// 🟡 Ads temporarily disabled — react-native-google-mobile-ads install করার পর
+// এই দুই লাইন আর নিচের useEffect/hook কল আবার আনকমেন্ট করে দেবেন
+// import useAppOpenInterstitial from "./src/ads/useAppOpenInterstitial";
+// import mobileAds from "react-native-google-mobile-ads";
 
 // App.js
 // CIRCLE NETWORK — root entry point.
@@ -38,6 +45,8 @@ const TAB_ICONS = {
   Dashboard: { active: 'flash', inactive: 'flash-outline' },
   Gaming: { active: 'game-controller', inactive: 'game-controller-outline' },
   DNS: { active: 'server', inactive: 'server-outline' },
+  Nearby: { active: 'wifi', inactive: 'wifi-outline' },
+  Speed: { active: 'speedometer', inactive: 'speedometer-outline' },
 };
 
 function FloatingTabBar({ state, descriptors, navigation }) {
@@ -99,6 +108,14 @@ export default function App() {
     Inter_800ExtraBold,
   });
 
+  // 🟡 Ads temporarily disabled — dependency install করার পর নিচের অংশ আনকমেন্ট করুন
+  // useEffect(() => {
+  //   mobileAds()
+  //     .initialize()
+  //     .catch(() => {});
+  // }, []);
+  // useAppOpenInterstitial();
+
   const onLayout = useCallback(async () => {
     if (fontsLoaded) await SplashScreen.hideAsync();
   }, [fontsLoaded]);
@@ -119,6 +136,8 @@ export default function App() {
               <Tab.Screen name="Dashboard" component={DashboardScreen} options={{ tabBarLabel: 'Dashboard' }} />
               <Tab.Screen name="Gaming" component={GamingTestScreen} options={{ tabBarLabel: 'Gaming' }} />
               <Tab.Screen name="DNS" component={DnsCheckScreen} options={{ tabBarLabel: 'DNS' }} />
+              <Tab.Screen name="Nearby" component={NearbyNetworksScreen} options={{ tabBarLabel: 'Nearby' }} />
+              <Tab.Screen name="Speed" component={SpeedTestScreen} options={{ tabBarLabel: 'Speed' }} />
             </Tab.Navigator>
           </NavigationContainer>
         </LanguageProvider>

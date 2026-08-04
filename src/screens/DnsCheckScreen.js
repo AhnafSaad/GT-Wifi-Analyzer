@@ -1,6 +1,7 @@
 import AppHeader from "../components/AppHeader";
 import React, { useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import { useIsFocused } from "@react-navigation/native";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Card, VerdictBadge } from "../components/Bits";
 import { T } from "../constants/translations";
@@ -14,24 +15,34 @@ import { COLORS, FONT, RADIUS, SPACING, statusColors } from "../theme";
 const REFRESH_INTERVAL_MS = 6000;
 const STATUS_KEY = { green: 'stable', yellow: 'slightlySlow', red: 'unstable' };
 
-// 🟢 হার্ডকোড ভ্যালুর বদলে প্যারামিটার হিসেবে resolverUrl এবং domains রিসিভ করবে
+// 🟢 আগে প্রতিবার একটা random domain বাছাই হতো, তাই fast/slow domain-এর
+// পার্থক্যের কারণে সংখ্যা অনেক লাফাতো। এখন সবগুলো domain একসাথে (parallel)
+// টেস্ট করে average নেওয়া হয় — এতে result অনেক বেশি স্থির থাকে।
 async function measureDnsResolution(resolverUrl, domains) {
-  // যদি domains না থাকে তবে ফলব্যাক হিসেবে google.com ব্যবহার করবে
   const testDomains = domains && domains.length > 0 ? domains : ['google.com'];
-  const domain = testDomains[Math.floor(Math.random() * testDomains.length)];
-  const start = Date.now();
-  
-  try {
-    // 🟢 ডাইনামিক URL ব্যবহার করা হচ্ছে
-    const res = await fetch(`${resolverUrl}?name=${domain}&type=A`, {
-      headers: { accept: 'application/dns-json' },
-    });
-    await res.json();
-    const ms = Date.now() - start;
-    return { ok: true, ms, domain };
-  } catch (err) {
-    return { ok: false, ms: null, domain };
+
+  const attempts = await Promise.all(
+    testDomains.map(async (domain) => {
+      const start = Date.now();
+      try {
+        const res = await fetch(`${resolverUrl}?name=${domain}&type=A`, {
+          headers: { accept: 'application/dns-json' },
+        });
+        await res.json();
+        return { ok: true, ms: Date.now() - start, domain };
+      } catch (err) {
+        return { ok: false, ms: null, domain };
+      }
+    })
+  );
+
+  const successful = attempts.filter((a) => a.ok);
+  if (successful.length === 0) {
+    return { ok: false, ms: null, domain: testDomains[0] };
   }
+
+  const avgMs = Math.round(successful.reduce((sum, a) => sum + a.ms, 0) / successful.length);
+  return { ok: true, ms: avgMs, domain: `${successful.length}/${testDomains.length} domains` };
 }
 
 export default function DnsCheckScreen() {
@@ -46,14 +57,25 @@ export default function DnsCheckScreen() {
   const [result, setResult] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef(null);
+  const isFocused = useIsFocused(); // 🟢 অন্য ট্যাবে থাকলে DNS check loop বন্ধ রাখার জন্য
+  const historyRef = useRef([]); // 🟢 শেষ কয়েকটা reading রাখা হয় smoothing এর জন্য
 
   const refreshReading = async () => {
-    // 🟢 কনফিগ থেকে URL এবং Domains পাঠানো হচ্ছে
+    // 🟢 এখন শুধু google.com টেস্ট হবে — dashboard-এর multi-domain লিস্ট এখানে
+    // আর ব্যবহার হচ্ছে না (আগে সবগুলো domain average করা হতো)
     const reading = await measureDnsResolution(
       dnsSettings.resolverUrl || 'https://dns.google/resolve', 
-      dnsSettings.domains || ['google.com']
+      ['google.com']
     );
-    if (reading.ok) setResult(reading);
+    if (reading.ok) {
+      // 🟢 rolling average: শেষ ৩টা reading এর গড় দেখানো হয়, একটা হঠাৎ স্পাইক
+      // পুরো display কে লাফাতে দেবে না
+      historyRef.current = [...historyRef.current, reading.ms].slice(-3);
+      const smoothedMs = Math.round(
+        historyRef.current.reduce((sum, v) => sum + v, 0) / historyRef.current.length
+      );
+      setResult({ ...reading, ms: smoothedMs });
+    }
   };
 
   const handleManualRefresh = () => {
@@ -62,12 +84,19 @@ export default function DnsCheckScreen() {
   };
 
   useEffect(() => {
+    // 🟢 আগে এই loop অন্য ট্যাবে গেলেও background-এ চলত (tab navigator unmount করে
+    // না) — এখন শুধু tab ফোকাসে থাকলেই চলবে, বাকি ping loop-গুলোর সাথে conflict কমাতে
+    if (!isFocused) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+    historyRef.current = []; // 🟢 config বদলালে পুরনো history দিয়ে নতুন average স্কিউ না হোক
     refreshReading();
     intervalRef.current = setInterval(refreshReading, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [dnsSettings.resolverUrl, dnsSettings.domains]); // 🟢 কনফিগ চেঞ্জ হলে যেন রিফ্রেশ হয়
+  }, [dnsSettings.resolverUrl, isFocused]); // dnsSettings.resolverUrl othoba focus change hole refresh hobe
 
   // 🟢 ডাইনামিক থ্রেশহোল্ড চেক করার ফাংশন
   const getDnsLevel = (ms) => {

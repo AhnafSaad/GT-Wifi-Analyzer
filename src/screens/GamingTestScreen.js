@@ -1,7 +1,8 @@
 import AppHeader from "../components/AppHeader";
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { FlatList, Image, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Card, StatusTag } from "../components/Bits";
 import { T } from "../constants/translations";
 import { ConfigContext } from "../context/ConfigContext";
@@ -33,6 +34,7 @@ export default function GamingTestScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const intervalRef = useRef(null);
+  const isFocused = useIsFocused(); // 🟢 অন্য ট্যাবে থাকলে ping loop বন্ধ রাখার জন্য
 
   // লাইভ সার্ভার ডেটা দিয়ে পিং টেস্ট পরিচালনা
   const refreshPings = async () => {
@@ -47,7 +49,11 @@ export default function GamingTestScreen() {
         const hostsList = s.hosts || [];
         const hostResults = await Promise.all(
           hostsList.map(async (h) => {
-            const r = await singlePing(h.ip);
+            // 🟢 আগে default 3000ms timeout ব্যবহার হতো — কোনো host unreachable
+            // হলে প্রতিবার পুরো ৩ সেকেন্ড অপেক্ষা করতে হতো, আর ৫ সেকেন্ড পরপর
+            // refresh হওয়ায় এটা স্লো/আটকে থাকার মতো লাগত। বাস্তবে ভালো game ping
+            // সাধারণত কয়েকশো ms-এর মধ্যেই হয়, তাই 1.5s যথেষ্ট এবং অনেক দ্রুত fail detect করে।
+            const r = await singlePing(h.ip, 1500);
             const ms = r.ok ? r.ms : null;
             const level = getHostStatusLevel(ms, h.smoothMax, h.playableMax);
             return {
@@ -63,23 +69,21 @@ export default function GamingTestScreen() {
         );
 
         const okResults = hostResults.filter((r) => r.ok);
-        const avgPing = okResults.length
-          ? Math.round(okResults.reduce((sum, r) => sum + r.ms, 0) / okResults.length)
+        // 🟢 আগে সব host-এর average দেখানো হতো (Free Fire-এ একটাই slow host থাকলেও
+        // "smooth" এর বদলে সেটাই average টেনে নামিয়ে দিত)। এখন সবচেয়ে ভালো
+        // (সবচেয়ে কম ms) route-টা দেখানো হয় — বাস্তবে গেমার যেভাবেই হোক best route-ই
+        // ব্যবহার করবে, তাই এটাই বেশি অর্থবহ।
+        const bestResult = okResults.length
+          ? okResults.reduce((best, r) => (r.ms < best.ms ? r : best))
           : null;
+        const bestPing = bestResult ? bestResult.ms : null;
 
-        // হোস্টগুলোর মধ্যে ওরস্ট লেভেল ট্র্যাক করা (সার্ভারের ওভারঅল স্ট্যাটাসের জন্য)
-        let overallLevel = 'green';
-        if (!okResults.length) {
-          overallLevel = 'red';
-        } else if (hostResults.some((h) => h.level === 'red')) {
-          overallLevel = 'red';
-        } else if (hostResults.some((h) => h.level === 'yellow')) {
-          overallLevel = 'yellow';
-        }
+        // সার্ভারের ওভারঅল status এখন best route-এর level অনুযায়ী (worst host আর ধরা হচ্ছে না)
+        const overallLevel = bestResult ? bestResult.level : 'red';
 
         return {
           ...s,
-          ping: avgPing,
+          ping: bestPing,
           overallLevel,
           reachableCount: okResults.length,
           totalHosts: hostsList.length,
@@ -96,12 +100,20 @@ export default function GamingTestScreen() {
   };
 
   useEffect(() => {
+    // 🟢 আগে এই loop সবসময় চলত, এমনকি অন্য ট্যাবে গেলেও (tab navigator screen
+    // unmount করে না, শুধু আড়াল করে) — এতে অন্য স্ক্রিনের (যেমন Devices scan) সাথে
+    // native ping resource নিয়ে conflict হয়ে "stuck" মনে হতো। এখন শুধু tab
+    // ফোকাসে থাকলেই ping loop চলবে।
+    if (!isFocused) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
     refreshPings();
     intervalRef.current = setInterval(refreshPings, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [config]);
+  }, [config, isFocused]);
 
   const toggleExpand = (id) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -117,7 +129,13 @@ export default function GamingTestScreen() {
       <Card style={styles.card}>
         <TouchableOpacity activeOpacity={0.7} onPress={() => toggleExpand(item.id)} style={styles.row}>
           <View style={[styles.logo, { backgroundColor: c.soft }]}>
-            <Ionicons name={item.icon || "game-controller"} size={20} color={c.main} />
+            {/* 🟢 Dashboard emoji (🎮) অথবা logo URL সেট করে — Ionicons name না,
+                তাই এখানে Ionicons এর বদলে logo Image অথবা emoji Text দেখানো হচ্ছে */}
+            {item.logo ? (
+              <Image source={{ uri: item.logo }} style={styles.logoImage} />
+            ) : (
+              <Text style={styles.logoEmoji}>{item.icon || '🎮'}</Text>
+            )}
           </View>
           <View style={styles.mid}>
             <View style={styles.nameRow}>
@@ -210,7 +228,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: SPACING.md,
   },
-  logo: { width: 42, height: 42, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  logo: { width: 42, height: 42, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', marginRight: 12, overflow: 'hidden' },
+  logoImage: { width: 42, height: 42 },
+  logoEmoji: { fontSize: 20 },
   mid: { flex: 1, marginRight: 8 },
   nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   gameName: { fontSize: 13.5, fontFamily: FONT.semibold, color: COLORS.ink },
